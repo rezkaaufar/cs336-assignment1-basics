@@ -1,12 +1,35 @@
 import os
 from typing import BinaryIO
 import multiprocessing as mp
-from collections import Counter
+from collections import Counter, defaultdict
+import regex as re
 
 from pathlib import Path
-DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
 
-from cs336_basics.bpe_training import build_counts
+DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
+PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+"""
+# initialize vocab list on byte level
+
+special_token = "<|endoftext|>"
+vocab_list = [bytes([idx]) for idx in range(256)]
+vocab_list.append(special_token.encode("utf-8"))
+"""
+
+def build_counts(
+    chunk: str
+):
+    splitted_chunk = re.findall(PAT, chunk)
+
+    ### char version ###
+    init_d = Counter(splitted_chunk)
+    fin_d = {}
+    for key in init_d:
+        new_key = tuple(list(key))
+        fin_d[new_key] = init_d[key]
+
+    return fin_d
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -54,9 +77,12 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
-def parallel_word_count(num_processes: int) -> dict[tuple[str], int]:
+def parallel_word_count(
+    file_path: str,
+    num_processes: int
+) -> dict[tuple[str], int]:
 
-    with open(DATA_PATH, "rb") as f:
+    with open(file_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
         doc_chunks = []
@@ -86,6 +112,84 @@ def parallel_word_count(num_processes: int) -> dict[tuple[str], int]:
 
         return final_counts
 
+def train_bpe(
+    file_path: str, 
+    vocab_size: int, 
+    special_tokens: bytes = b"<|endoftext|>"
+) -> (dict[int, bytes], list[tuple[bytes, bytes]]):
+
+    # initialize initial vocab
+    vocab = {idx: bytes([idx]) for idx in range(256)}
+    special_token_id = 256
+    vocab[special_token_id] = special_tokens
+    token_id = special_token_id + 1
+
+    # initialize merges
+    merges = []
+
+    # calculate parallel pretokenization
+    fc = parallel_word_count(file_path=file_path, num_processes=100)
+
+    # build unique words and unique counts
+    words = [w for w in fc.keys()]
+    counts = [c for k, c in fc.items()]
+
+    # update pairs and pos
+    pairs = defaultdict(int)
+    pos = defaultdict(set)
+    idx = 0
+    for word, freq in zip(words, counts):
+        for p in zip(word, word[1:]):
+            pairs[p] += freq
+            pos[p].add(idx)
+        idx += 1
+
+    while len(vocab) < vocab_size:
+        best = max(pairs, key=lambda p: (pairs[p], p))
+        
+        # build merged vocab
+        p1, p2 = best
+        merged_ch = p1 + p2
+        merged_tuple = (p1.encode("utf-8"), p2.encode("utf-8"))
+        merges.append(merged_tuple)
+        vocab[token_id] = merged_ch.encode("utf-8")
+        token_id += 1
+
+        eligible_words_idx = pos[best]
+        for idx in list(eligible_words_idx):
+            # print(idx, len(words))
+            word = words[idx]
+            c = counts[idx]
+            out, i, n = [], 0, len(word)
+            while i < n:
+                # merging happen
+                if i < n - 1 and word[i] == a and word[i + 1] == b:
+                    out.append(merged_ch)
+                    i += 2          # skip both — no overlap
+                else:
+                    out.append(word[i])
+                    i += 1
+            # update pairs and pos to 0
+            for p in zip(word, word[1:]):
+                pairs[p] = 0
+                pos[p].add(idx)
+
+            # update pairs and pos using the new merge
+            for p in zip(out, out[1:]):
+                pairs[p] += c
+                pos[p].add(idx)
+
+            # remove merged pairs and pos
+            pairs.pop(best, None)
+            pos.pop(best, None)
+
+            # update new words
+            words[idx] = out
+    
+    return vocab, merges
+
+
 ## Usage
 if __name__ == '__main__':
-    fc = parallel_word_count(num_processes=100)
+    vocab, merges = train_bpe(DATA_PATH, 10000)
+    print(vocab)
