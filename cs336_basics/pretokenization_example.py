@@ -22,13 +22,21 @@ def build_counts(
 ):
     splitted_chunk = re.findall(PAT, chunk)
 
-    ### char version ###
+    # ### char version ###
+    # init_d = Counter(splitted_chunk)
+    # fin_d = {}
+    # for key in init_d:
+    #     new_key = tuple(list(key))
+    #     fin_d[new_key] = init_d[key]
+
+    ### byte version ###
     init_d = Counter(splitted_chunk)
     fin_d = {}
     for key in init_d:
-        new_key = tuple(list(key))
-        fin_d[new_key] = init_d[key]
-
+        byte_list = [ch.encode("utf-8") for ch in key]
+        byte_key = tuple(byte_list)
+        fin_d[byte_key] = init_d[key]
+    
     return fin_d
 
 def find_chunk_boundaries(
@@ -107,22 +115,24 @@ def parallel_word_count(
         for chunk_counter in results:
             final_counts.update(chunk_counter)
         
-        print("Top 3 Consolidated Word Counts:")
-        print(final_counts.most_common(3))
+        # print("Top 3 Consolidated Word Counts:")
+        # print(final_counts.most_common(3))
 
         return final_counts
 
 def train_bpe(
     file_path: str, 
     vocab_size: int, 
-    special_tokens: bytes = b"<|endoftext|>"
+    special_tokens: list[str] = ["<|endoftext|>"]
 ) -> (dict[int, bytes], list[tuple[bytes, bytes]]):
 
     # initialize initial vocab
-    vocab = {idx: bytes([idx]) for idx in range(256)}
-    special_token_id = 256
-    vocab[special_token_id] = special_tokens
-    token_id = special_token_id + 1
+    special_token_id = 0
+    vocab = {}
+    vocab[special_token_id] = special_tokens[0].encode("utf-8")
+    for idx in range(256):
+        vocab[idx+1] = bytes([idx]) 
+    token_id = idx + 2
 
     # initialize merges
     merges = []
@@ -144,15 +154,22 @@ def train_bpe(
             pos[p].add(idx)
         idx += 1
 
-    while len(vocab) < vocab_size:
+    while token_id < vocab_size:
         best = max(pairs, key=lambda p: (pairs[p], p))
+        # print(best)
+        # print(dict(sorted(pairs.items(), key=lambda item: item[1], reverse=True)))
+        # print()
         
         # build merged vocab
         p1, p2 = best
         merged_ch = p1 + p2
-        merged_tuple = (p1.encode("utf-8"), p2.encode("utf-8"))
+        # merged_tuple = (p1.encode("utf-8"), p2.encode("utf-8"))
+        # merges.append(merged_tuple)
+        # vocab[token_id] = merged_ch.encode("utf-8")
+
+        merged_tuple = (p1, p2)
         merges.append(merged_tuple)
-        vocab[token_id] = merged_ch.encode("utf-8")
+        vocab[token_id] = merged_ch
         token_id += 1
 
         eligible_words_idx = pos[best]
@@ -163,16 +180,15 @@ def train_bpe(
             out, i, n = [], 0, len(word)
             while i < n:
                 # merging happen
-                if i < n - 1 and word[i] == a and word[i + 1] == b:
+                if i < n - 1 and word[i] == p1 and word[i + 1] == p2:
                     out.append(merged_ch)
                     i += 2          # skip both — no overlap
                 else:
                     out.append(word[i])
                     i += 1
-            # update pairs and pos to 0
+            # update pairs to 0
             for p in zip(word, word[1:]):
-                pairs[p] = 0
-                pos[p].add(idx)
+                pairs[p] -= c
 
             # update pairs and pos using the new merge
             for p in zip(out, out[1:]):
@@ -189,7 +205,9 @@ def train_bpe(
     return vocab, merges
 
 
+DATA_PATH = Path(__file__).parent.parent / "tests" / "fixtures" / "corpus.en"
 ## Usage
 if __name__ == '__main__':
-    vocab, merges = train_bpe(DATA_PATH, 10000)
-    print(vocab)
+    vocab, merges = train_bpe(DATA_PATH, 500)
+    # print(vocab)
+    print(merges)
