@@ -3,37 +3,24 @@ from typing import BinaryIO
 import multiprocessing as mp
 from collections import Counter, defaultdict
 import regex as re
+import pickle
 
 from pathlib import Path
 
 DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-"""
-# initialize vocab list on byte level
-
-special_token = "<|endoftext|>"
-vocab_list = [bytes([idx]) for idx in range(256)]
-vocab_list.append(special_token.encode("utf-8"))
-"""
-
 def build_counts(
     chunk: str
 ):
     splitted_chunk = re.findall(PAT, chunk)
 
-    # ### char version ###
-    # init_d = Counter(splitted_chunk)
-    # fin_d = {}
-    # for key in init_d:
-    #     new_key = tuple(list(key))
-    #     fin_d[new_key] = init_d[key]
-
     ### byte version ###
     init_d = Counter(splitted_chunk)
     fin_d = {}
     for key in init_d:
-        byte_list = [ch.encode("utf-8") for ch in key]
+        byte_list_ = [ch for ch in key.encode("utf-8")]
+        byte_list = [bytes([b]) for b in byte_list_]
         byte_key = tuple(byte_list)
         fin_d[byte_key] = init_d[key]
     
@@ -102,23 +89,23 @@ def parallel_word_count(
             for elem in splitted_chunks:
                 doc_chunks.append(elem)
 
-        num_cores = mp.cpu_count()
+    num_cores = mp.cpu_count()
 
-        # returns every single dict tuple bytes count from each chunk
-        with mp.Pool(processes=num_cores) as pool:
-            results = pool.map(build_counts, doc_chunks)
+    # returns every single dict tuple bytes count from each chunk
+    with mp.Pool(processes=num_cores) as pool:
+        results = pool.map(build_counts, doc_chunks)
 
-        # consolidate all the result in one final dictionary
-        final_counts = Counter()
+    # consolidate all the result in one final dictionary
+    final_counts = Counter()
 
-        # Loop through the results and merge them into the master counter
-        for chunk_counter in results:
-            final_counts.update(chunk_counter)
+    # Loop through the results and merge them into the master counter
+    for chunk_counter in results:
+        final_counts.update(chunk_counter)
         
-        # print("Top 3 Consolidated Word Counts:")
-        # print(final_counts.most_common(3))
+    print("Top 3 Consolidated Word Counts:")
+    print(final_counts.most_common(3))
 
-        return final_counts
+    return final_counts
 
 def train_bpe(
     file_path: str, 
@@ -138,7 +125,7 @@ def train_bpe(
     merges = []
 
     # calculate parallel pretokenization
-    fc = parallel_word_count(file_path=file_path, num_processes=100)
+    fc = parallel_word_count(file_path=file_path, num_processes=128)
 
     # build unique words and unique counts
     words = [w for w in fc.keys()]
@@ -156,16 +143,10 @@ def train_bpe(
 
     while token_id < vocab_size:
         best = max(pairs, key=lambda p: (pairs[p], p))
-        # print(best)
-        # print(dict(sorted(pairs.items(), key=lambda item: item[1], reverse=True)))
-        # print()
         
         # build merged vocab
         p1, p2 = best
         merged_ch = p1 + p2
-        # merged_tuple = (p1.encode("utf-8"), p2.encode("utf-8"))
-        # merges.append(merged_tuple)
-        # vocab[token_id] = merged_ch.encode("utf-8")
 
         merged_tuple = (p1, p2)
         merges.append(merged_tuple)
@@ -173,8 +154,8 @@ def train_bpe(
         token_id += 1
 
         eligible_words_idx = pos[best]
+        touched = set()
         for idx in list(eligible_words_idx):
-            # print(idx, len(words))
             word = words[idx]
             c = counts[idx]
             out, i, n = [], 0, len(word)
@@ -186,28 +167,42 @@ def train_bpe(
                 else:
                     out.append(word[i])
                     i += 1
+
             # update pairs to 0
             for p in zip(word, word[1:]):
                 pairs[p] -= c
+                touched.add(p)
 
             # update pairs and pos using the new merge
             for p in zip(out, out[1:]):
                 pairs[p] += c
                 pos[p].add(idx)
-
-            # remove merged pairs and pos
-            pairs.pop(best, None)
-            pos.pop(best, None)
+                touched.add(p)
 
             # update new words
             words[idx] = out
+
+        # prune 0 touched
+        for p in touched:
+            if pairs.get(p, 0) <= 0:
+                pairs.pop(p, None)
+                pos.pop(p, None)
+
+        # remove merged pairs and pos
+        pairs.pop(best, None)
+        pos.pop(best, None)
+
     
     return vocab, merges
 
 
-DATA_PATH = Path(__file__).parent.parent / "tests" / "fixtures" / "corpus.en"
+DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-train.txt"
 ## Usage
 if __name__ == '__main__':
     vocab, merges = train_bpe(DATA_PATH, 500)
+    with open("data/vocab_tinystories.pkl", "wb") as file:
+        pickle.dump(vocab, file)
+    with open("data/merges_tinystories.pkl", "wb") as file:
+        pickle.dump(merges, file)
     # print(vocab)
-    print(merges)
+    # print(merges)

@@ -1,2 +1,2 @@
-- create the words and counts from the counts dict[tuple[str], int]
+- [v] create the words and counts from the counts dict[tuple[str], int]
 - do the merging
