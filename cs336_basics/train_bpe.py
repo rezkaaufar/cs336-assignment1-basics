@@ -10,21 +10,21 @@ from pathlib import Path
 DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-def build_counts(
-    chunk: str
-):
-    splitted_chunk = re.findall(PAT, chunk)
+# def build_counts(
+#     chunk: str
+# ):
+#     splitted_chunk = re.findall(PAT, chunk)
 
-    ### byte version ###
-    init_d = Counter(splitted_chunk)
-    fin_d = {}
-    for key in init_d:
-        byte_list_ = [ch for ch in key.encode("utf-8")]
-        byte_list = [bytes([b]) for b in byte_list_]
-        byte_key = tuple(byte_list)
-        fin_d[byte_key] = init_d[key]
+#     ### byte version ###
+#     init_d = Counter(splitted_chunk)
+#     fin_d = {}
+#     for key in init_d:
+#         byte_list_ = [ch for ch in key.encode("utf-8")]
+#         byte_list = [bytes([b]) for b in byte_list_]
+#         byte_key = tuple(byte_list)
+#         fin_d[byte_key] = init_d[key]
     
-    return fin_d
+#     return fin_d
 
 def find_chunk_boundaries(
     file: BinaryIO,
@@ -72,35 +72,52 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
+def process_file_chunk(args: tuple[str, int, int]) -> Counter:
+    """Worker receives byte offsets, reads its own chunk, and returns one Counter."""
+    file_path, start, end = args
+    pat = re.compile(PAT)
+    local_counts = Counter()
+
+    with open(file_path, "rb") as f:
+        f.seek(start)
+        chunk_bytes = f.read(end - start)
+
+    # Split documents within this worker's chunk
+    stories = chunk_bytes.decode("utf-8", errors="ignore").split("<|endoftext|>")
+
+    for story in stories:
+        if not story:
+            continue
+        tokens = pat.findall(story)
+        for token in tokens:
+            # Represent token as a tuple of 1-byte bytes objects
+            b_tuple = tuple(bytes([b]) for b in token.encode("utf-8"))
+            local_counts[b_tuple] += 1
+
+    return local_counts
+
 def parallel_word_count(
     file_path: str,
     num_processes: int
 ) -> dict[tuple[str], int]:
 
+    if num_processes is None:
+        num_processes = mp.cpu_count()
+
     with open(file_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
-        doc_chunks = []
-        for start, end in zip(boundaries[:-1], boundaries[1:]):
-            f.seek(start)
-            chunk = f.read(end - start).decode("utf-8", errors="ignore")
-            # Run pre-tokenization on your chunk and store the counts for each pre-token
-            splitted_chunks = chunk.split("<|endoftext|>")
-            for elem in splitted_chunks:
-                doc_chunks.append(elem)
+    # Build task arguments: only num_processes tasks in total!
+    tasks = [
+        (file_path, start, end)
+        for start, end in zip(boundaries[:-1], boundaries[1:])
+    ]
 
-    num_cores = mp.cpu_count()
-
-    # returns every single dict tuple bytes count from each chunk
-    with mp.Pool(processes=num_cores) as pool:
-        results = pool.map(build_counts, doc_chunks)
-
-    # consolidate all the result in one final dictionary
     final_counts = Counter()
-
-    # Loop through the results and merge them into the master counter
-    for chunk_counter in results:
-        final_counts.update(chunk_counter)
+    with mp.Pool(processes=num_processes) as pool:
+        # pool.imap_unordered yields results as they finish to reduce memory spikes
+        for worker_counter in pool.imap_unordered(process_file_chunk, tasks):
+            final_counts.update(worker_counter)
         
     print("Top 3 Consolidated Word Counts:")
     print(final_counts.most_common(3))
@@ -199,7 +216,7 @@ def train_bpe(
 DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-train.txt"
 ## Usage
 if __name__ == '__main__':
-    vocab, merges = train_bpe(DATA_PATH, 500)
+    vocab, merges = train_bpe(DATA_PATH, 10000)
     with open("data/vocab_tinystories.pkl", "wb") as file:
         pickle.dump(vocab, file)
     with open("data/merges_tinystories.pkl", "wb") as file:
