@@ -10,22 +10,6 @@ from pathlib import Path
 DATA_PATH = Path(__file__).parent.parent / "data" / "TinyStoriesV2-GPT4-valid.txt"
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
-# def build_counts(
-#     chunk: str
-# ):
-#     splitted_chunk = re.findall(PAT, chunk)
-
-#     ### byte version ###
-#     init_d = Counter(splitted_chunk)
-#     fin_d = {}
-#     for key in init_d:
-#         byte_list_ = [ch for ch in key.encode("utf-8")]
-#         byte_list = [bytes([b]) for b in byte_list_]
-#         byte_key = tuple(byte_list)
-#         fin_d[byte_key] = init_d[key]
-    
-#     return fin_d
-
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
