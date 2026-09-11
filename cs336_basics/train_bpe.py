@@ -4,6 +4,7 @@ import multiprocessing as mp
 from collections import Counter, defaultdict
 import regex as re
 import pickle
+import time
 
 from pathlib import Path
 
@@ -125,9 +126,12 @@ def train_bpe(
     # initialize merges
     merges = []
 
+    start_time = time.time()
     # calculate parallel pretokenization
-    fc = parallel_word_count(file_path=file_path, num_processes=128)
+    fc = parallel_word_count(file_path=file_path, num_processes=None)
 
+    end_time = time.time()
+    print(end_time - start_time)
     # build unique words and unique counts
     words = [w for w in fc.keys()]
     counts = [c for k, c in fc.items()]
