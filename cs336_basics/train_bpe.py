@@ -147,6 +147,7 @@ def train_bpe(
         idx += 1
 
     while token_id < vocab_size:
+        #TODO: implement max-heap for this
         best = max(pairs, key=lambda p: (pairs[p], p))
         
         # build merged vocab
@@ -209,5 +210,3 @@ if __name__ == '__main__':
         pickle.dump(vocab, file)
     with open("data/merges_tinystories.pkl", "wb") as file:
         pickle.dump(merges, file)
-    # print(vocab)
-    # print(merges)
