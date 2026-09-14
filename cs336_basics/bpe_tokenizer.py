@@ -15,7 +15,7 @@ class Tokenizer:
     ):
         self.vocab = vocab
         self.merges = merges
-        self.special_tokens = set(special_tokens)
+        self.special_tokens = special_tokens
         self.merge_dictionary = {}
         self.pat = re.compile(PAT)
 
@@ -41,29 +41,34 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
         
 
-    def pretokenize(self, text, special_tokens=("<|endoftext|>",)):
+    def pretokenize(self, text):
+        if not self.special_tokens:  # handles None or empty list/tuple
+            return self.pat.findall(text)
         # sort longest-first so overlapping special tokens don't shadow each other
-        specials = sorted(special_tokens, key=len, reverse=True)
+        specials = sorted(self.special_tokens, key=len, reverse=True)
         split_pat = "(" + "|".join(re.escape(t) for t in specials) + ")"
 
         pieces = re.split(split_pat, text)  # capturing group keeps the delimiters
         out = []
         for piece in pieces:
-            if piece in special_tokens:
+            if piece in self.special_tokens:
                 out.append(piece)          # keep special token whole
             elif piece:
-                out.extend(re.findall(PAT, piece))  # normal tokenization
+                out.extend(self.pat.findall(piece))  # normal tokenization
         return out
 
 
     def encode(self, text: str) -> list[int]:
         # texts = self.pat.findall(text)
         texts = self.pretokenize(text)
-        print(texts)
+        # print(texts)
         result = []
+        set_st = set()
+        if self.special_tokens:
+            set_st = set(self.special_tokens)
         for token in texts:
             byte_list = [bytes([b]) for b in token.encode("utf-8")]
-            if token in self.special_tokens:
+            if self.special_tokens and token in set_st:
                 result.append(token.encode("utf-8"))
                 continue
 
@@ -128,7 +133,7 @@ class Tokenizer:
             for res, stat in zip(byte_list, deleted):
                 if not stat:
                     result.append(res)
-        print(result)
+        # print(result)
         
         return [self.inverted_vocab[elem] for elem in result]
 
@@ -139,24 +144,24 @@ class Tokenizer:
         bytes_res = b''
         for id in ids:
             bytes_res  += self.vocab[id]
-        print(bytes_res)
-        return bytes_res.decode("utf-8")
+        # print(bytes_res)
+        return bytes_res.decode("utf-8", errors='ignore')
 
 
 if __name__ == '__main__':
     vocab_path = "data/vocab_tinystories.pkl"
     merges_path = "data/merges_tinystories.pkl"
 
-    tokenizer = Tokenizer.from_files(vocab_path, merges_path, ["<|endoftext|>"])
+    tokenizer = Tokenizer.from_files(vocab_path, merges_path, ["<|endoftext|>", "<|endoftext|><|endoftext|>"])
 
     # text_input = "Hello, how are you?"
-    text_input = "Héllò hôw are ü? 🙃"
-    # text_input = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
+    # text_input = "Héllò hôw are ü? 🙃"
+    text_input = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
 
     # ids = tokenizer.encode("my son and my wife are the best person ever in the world")
     # ids = tokenizer.encode("🙃")
     ids = tokenizer.encode(text_input)
-    print(ids)
+    # print(ids)
     tokenized_string = [tokenizer.decode([x]) for x in ids]
-    print(tokenized_string)
-    print(tokenizer.decode(ids))
+    # print(tokenized_string)
+    # print(tokenizer.decode(ids))
