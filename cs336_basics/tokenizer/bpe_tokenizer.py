@@ -156,14 +156,18 @@ if __name__ == '__main__':
 
     tokenizer = Tokenizer.from_files(vocab_path, merges_path, ["<|endoftext|>",])
 
-    # text_input = "Hello, how are you?"
+    text_input = "Hello, how are you?"
     # text_input = "Héllò hôw are ü? 🙃"
-    text_input = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
+    # text_input = "Héllò hôw <|endoftext|><|endoftext|> are ü? 🙃<|endoftext|>"
 
     # ids = tokenizer.encode("my son and my wife are the best person ever in the world")
     # ids = tokenizer.encode("🙃")
     ids = tokenizer.encode(text_input)
     # print(ids)
     tokenized_string = [tokenizer.decode([x]) for x in ids]
+
+    byte_token_ratio  = len(ids) / len(text_input)
+
+    print(f"byte token ratio : {str(byte_token_ratio)}")
     # print(tokenized_string)
     # print(tokenizer.decode(ids))
