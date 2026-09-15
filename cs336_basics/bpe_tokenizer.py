@@ -138,21 +138,23 @@ class Tokenizer:
         return [self.inverted_vocab[elem] for elem in result]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        raise NotImplementedError()
+        for lines in iterable:
+            for ch_int in self.encode(lines):
+                yield ch_int
         
     def decode(self, ids: list[int]) -> str:
         bytes_res = b''
         for id in ids:
             bytes_res  += self.vocab[id]
         # print(bytes_res)
-        return bytes_res.decode("utf-8", errors='ignore')
+        return bytes_res.decode("utf-8", errors='replace')
 
 
 if __name__ == '__main__':
     vocab_path = "data/vocab_tinystories.pkl"
     merges_path = "data/merges_tinystories.pkl"
 
-    tokenizer = Tokenizer.from_files(vocab_path, merges_path, ["<|endoftext|>", "<|endoftext|><|endoftext|>"])
+    tokenizer = Tokenizer.from_files(vocab_path, merges_path, ["<|endoftext|>",])
 
     # text_input = "Hello, how are you?"
     # text_input = "Héllò hôw are ü? 🙃"
